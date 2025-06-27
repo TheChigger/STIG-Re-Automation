@@ -1,0 +1,93 @@
+# This script came as a necessity to save time in the performance and completion of annual STIG requirements set forth by my former, incompetent bosses. 
+# Evaluate STIG is a program that uses PowerShell and shell scripting to assess whether a computer system adheres to security standards set forth by DISA
+# The tool automatically creates a file in XML (V2) or JSON (V3) formats that summarizes the rule, its purpose, pass/fail metrics, and finding details. 
+# Despite that answer files, which change status from open/not a finding/not applicable/not reviewed to one of the other statuses with a comment as to why, the sheer incompetence that can be demonstrated by very senior DOD employees knows few, if any, bounds
+# due to the system owner at my old job's statement that "I don't trust automation or powersheel", my team and I were made to comment our names in every open finding, even if it has an answer file. They said "How else are we supposed to know if it's still open if the answer file is changing the status"
+# Despite explaining to them that answer files have validation arguments that would keep the status unchanged unless particular criteria are met. They dont know how scripts work, and therefore, they could not be made to understand. 
+# Given that my team and I were responsible for STIGing more than 2000 systems a year, and given that making manual edits to more than a dozen open findings on *all* systems due to the System Owners configuration requirements spread across 10-15 different STIGs per device, and given that they would not accept a 'multi-stig' document, This script is necessary. 
+
+# The script will first ask you for the directory containing your STIGs. I recommend organizing them in a way that you have only one subfolder for each machine. For example, if you organize you STIGs into a single directory called STIG_RAW, then each NetBIOS name has, saw, 7 stigs in it's folder, you would past the path \...\STIG_RAW. Then, the Script *should* search each folder in that folder, and any folders in that one, and will modify the relevant files in all, however, it has been unreliable for me with more than subfolder after "\STIG_RAW". 
+
+# Then it will ask your name. This is the name that will be appended to the end of all comments based on your criteria.
+
+# You can also add to the arguments so that if a finding is Not Applicable, and you know it will be, you can add a signature to that. The good news is this script can be used to modify any characteristic in the file. I once used this script to change the date of comments and findings on an assess only that my ISSO took 3 months to review, so he told us to redo the STIG. Nope, you get new dates. Saved about a week of work. 
+
+# Good luck to anyone that needs this script. I find that to be insane and, frankly, par for the course with DOD civilians. 
+
+
+
+
+
+
+
+# Prompt the user to enter a directory path
+$directoryPath = Read-Host "Please enter the directory path containing .ckl files"
+
+# Validate that the directory exists
+if (-Not (Test-Path -Path $directoryPath)) {
+    Write-Host "The specified directory does not exist. Please check the path and try again."
+    exit
+}
+
+# Get today's date in the desired format
+$todayDate = (Get-Date).ToString("MM/dd/yyyy")
+
+# Ask the user for their name (input is treated as plain text)
+$userName = Read-Host "Please enter your name"
+
+# Get all .ckl files in the specified directory and child directories following the pattern
+$cklFiles = Get-ChildItem -Path $directoryPath -Recurse -Directory | 
+            Where-Object { $_.Parent -ne $null -and $_.Parent.Parent -ne $null -and $_.Parent.Parent.Parent -eq $directoryPath } |
+            ForEach-Object { Get-ChildItem -Path $_.FullName -Filter "*.ckl" }
+
+# Check if there are no .ckl files
+if ($cklFiles.Count -eq 0) {
+    Write-Host "No .ckl files found in the specified directory."
+    exit
+}
+
+# Initialize counters
+$totalFilesModified = 0
+$fileChangeSummary = @{}
+
+# Process each .ckl file
+foreach ($file in $cklFiles) {
+    # Read the file content into an array of lines
+    $content = Get-Content -Path $file.FullName
+    $changesMade = 0
+
+    # Loop through the lines of the file
+    for ($i = 0; $i -lt $content.Length; $i++) {
+        # Check for the line containing '<STATUS>Open</STATUS>'
+        if ($content[$i] -match "<STATUS>Open</STATUS>") {
+            # Ensure there's a next line and check for '<FINDING_DETAILS>'
+            if ($i + 1 -lt $content.Length -and $content[$i + 1] -match "<FINDING_DETAILS>") {
+                # Construct the string to insert
+                $insertText = "This is an open finding. $userName $todayDate`r`n`r`n"
+
+                # Insert the text directly following the '>' character with two new lines
+                $content[$i + 1] = $content[$i + 1] -replace "(<FINDING_DETAILS>)", "`$1$insertText"
+                $changesMade++
+            }
+        }
+    }
+
+    # If changes were made, update the file and record summary
+    if ($changesMade -gt 0) {
+        $content | Set-Content -Path $file.FullName
+        $totalFilesModified++
+        $fileChangeSummary[$file.FullName] = $changesMade
+    }
+
+    Write-Host "Processed file: $($file.FullName) - Changes made: $changesMade"
+}
+
+# Display summary
+Write-Host "`nSummary:"
+Write-Host "Total files modified: $totalFilesModified"
+
+foreach ($key in $fileChangeSummary.Keys) {
+    Write-Host "File: $key - Changes: $fileChangeSummary[$key]"
+}
+
+Write-Host "All .ckl files processed successfully!"
