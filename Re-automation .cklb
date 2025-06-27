@@ -1,0 +1,38 @@
+# Navigate through JSON structure
+foreach ($stig in $content.stigs) {
+    foreach ($rule in $stig.rules) {
+        # Check if 'comments' contains the specific text
+        if ($rule.comments -like "*Evaluate-STIG answer file for Key*") {
+            # Determine the appropriate message based on 'status'
+            switch ($rule.status) {
+                "open"          { $insertText = "This is an Open Finding, verified by $userName $todayDate`r`n`r`n" }
+                "not_a_finding" { $insertText = "This is Not a Finding, verified by $userName $todayDate`r`n`r`n" }
+                "not_applicable" { $insertText = "This is not applicable, verified by $userName $todayDate`r`n`r`n" }
+                "not_reviewed"  { $insertText = "This finding has been set to 'Not Reviewed' for Cyber review of configuration and ISSO policy, set by $userName $todayDate`r`n`r`n" }
+                Default         { $insertText = "." }  # Handles unexpected cases gracefully and allows them to be completed in the eys of the program
+            }
+
+            # If a message was defined, prepend it to 'comments'
+            if ($insertText -ne "") {
+                $rule.comments = "$insertText" + $rule.comments
+                $changesMade++
+            }
+        } else {
+            # Track rules with 'open' or 'not_reviewed' status that were NOT modified
+            if ($rule.status -eq "open" -or $rule.status -eq "not_reviewed") {
+                $unmodifiedCount++
+            }
+        }
+    }
+}
+
+# If changes were made, update the JSON file
+if ($changesMade -gt 0) {
+    $content | ConvertTo-Json -Depth 5 | Set-Content -Path $file.FullName
+    $fileChangeSummary[$file.FullName] = $changesMade
+}
+
+# Store unmodified count for tracking
+$unmodifiedFindingsSummary[$file.FullName] = $unmodifiedCount
+
+Write-Host "Processed file: $($file.FullName) - Changes made: $changesMade - Unmodified findings: $unmodifiedCount"
